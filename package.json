@@ -1,0 +1,70 @@
+{
+  "name": "electrodesign",
+  "version": "0.1.0",
+  "description": "Plataforma de diseño eléctrico: diagramas unilineales, multifilares y armado de tableros según SEC/RIC",
+  "license": "GPL-3.0-only",
+  "author": "ElectroDesign",
+  "homepage": "https://github.com/pickatroll12-arch/ElectroDesign",
+  "private": true,
+  "type": "module",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "electron": "npm run build && electron .",
+    "dist:linux": "npm run build && electron-builder --linux AppImage tar.gz --publish never",
+    "dist:win": "npm run build && electron-builder --win portable zip --publish never"
+  },
+  "build": {
+    "appId": "cl.electrodesign.app",
+    "productName": "ElectroDesign",
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "fileAssociations": [
+      {
+        "ext": "edz",
+        "name": "Proyecto ElectroDesign",
+        "role": "Editor"
+      }
+    ],
+    "linux": {
+      "category": "Engineering",
+      "icon": "build/icon.png",
+      "synopsis": "Diseño eléctrico según SEC/RIC",
+      "syncDesktopName": true
+    },
+    "win": {
+      "icon": "build/icon.png"
+    },
+    "portable": {
+      "artifactName": "${productName}-${version}-windows-${arch}-portable.${ext}"
+    }
+  },
+  "devDependencies": {
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.3.0",
+    "electron": "^45.3.3",
+    "electron-builder": "^26.18.0",
+    "fflate": "^0.8.3",
+    "jspdf": "^4.2.1",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "svg2pdf.js": "^2.9.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8",
+    "vitest": "^5.1.0"
+  },
+  "desktopName": "electrodesign.desktop"
+}
