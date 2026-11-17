@@ -1,5 +1,7 @@
 import { irA, proyectoNuevo, useStore } from './model/store';
-import { abrirProyecto, confirmarDescarte } from './io/archivos';
+import { abrirConPregunta, confirmarDescarte } from './io/archivos';
+// Incrustado en el código para que también salga en la versión de un solo archivo.
+import icono from '../public/icon.svg?inline';
 import { VERSION } from './version';
 
 const MODOS = [
@@ -52,7 +54,7 @@ export function Inicio() {
     <div className="inicio">
       <div className="inicio-caja">
         <header>
-          <img src="./icon.svg" alt="" width={56} height={56} />
+          <img src={icono} alt="" width={56} height={56} />
           <div>
             <h1>ElectroDesign</h1>
             <p>Diseño eléctrico según SEC / RIC</p>
@@ -66,7 +68,7 @@ export function Inicio() {
               key={m.id}
               className="modo"
               disabled={!m.disponible}
-              onClick={() => confirmarDescarte() && proyectoNuevo(m.id)}
+              onClick={() => void confirmarDescarte().then((ok) => ok && proyectoNuevo(m.id))}
             >
               <svg viewBox="0 0 40 46" width="64" height="74" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 {m.dibujo}
@@ -79,7 +81,7 @@ export function Inicio() {
         </div>
 
         <div className="inicio-acciones">
-          <button onClick={() => confirmarDescarte() && void abrirProyecto()}>Abrir proyecto (.edz)</button>
+          <button onClick={() => void abrirConPregunta()}>Abrir proyecto (.edz)</button>
           {tieneProyecto && <button onClick={() => irA('editor')}>Volver a {fileName}</button>}
         </div>
 

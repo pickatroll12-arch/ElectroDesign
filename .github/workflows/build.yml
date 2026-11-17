@@ -32,6 +32,12 @@ jobs:
           name: ElectroDesign-webapp
           path: dist
           if-no-files-found: error
+      - run: npm run build:html
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ElectroDesign-html
+          path: dist-html/ElectroDesign.html
+          if-no-files-found: error
 
   linux:
     name: Linux (AppImage y tar.gz)
@@ -71,3 +77,4 @@ jobs:
           files: |
             artefactos/ElectroDesign-linux/*
             artefactos/ElectroDesign-webapp.zip
+            artefactos/ElectroDesign-html/ElectroDesign.html

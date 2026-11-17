@@ -25,6 +25,8 @@ export interface State {
   undo: Project[];
   redo: Project[];
   aviso: string | null;
+  /** Pregunta de confirmación abierta, dibujada por la app (no usa window.confirm). */
+  pregunta: { texto: string; aceptar: string } | null;
 }
 
 const MAX_HISTORIAL = 100;
@@ -44,6 +46,7 @@ function inicial(): State {
     undo: [],
     redo: [],
     aviso: null,
+    pregunta: null,
   };
 }
 
@@ -162,6 +165,27 @@ export function marcarGuardado(fileName: string, filePath: string | null) {
 
 export function avisar(aviso: string | null) {
   set({ aviso });
+}
+
+let resolverPregunta: ((ok: boolean) => void) | null = null;
+
+/**
+ * Pide confirmación con un cuadro propio. Hay navegadores y visores que no
+ * muestran window.confirm, así que la app no depende de él.
+ */
+export function preguntar(texto: string, aceptar = 'Continuar'): Promise<boolean> {
+  resolverPregunta?.(false);
+  return new Promise((resolve) => {
+    resolverPregunta = resolve;
+    set({ pregunta: { texto, aceptar } });
+  });
+}
+
+export function responderPregunta(ok: boolean) {
+  const r = resolverPregunta;
+  resolverPregunta = null;
+  set({ pregunta: null });
+  r?.(ok);
 }
 
 export function setTool(tool: Tool) {

@@ -10,7 +10,8 @@ createRoot(document.getElementById('root')!).render(
 );
 
 // La WebApp se instala y funciona sin conexión. En la app de escritorio no hace falta.
-if (import.meta.env.PROD && 'serviceWorker' in navigator && location.protocol.startsWith('http')) {
+// La versión de un solo archivo tampoco lo usa: no tiene archivos que guardar en caché.
+if (import.meta.env.PROD && import.meta.env.MODE !== 'unico' && 'serviceWorker' in navigator && location.protocol.startsWith('http')) {
   navigator.serviceWorker.register('./sw.js').catch(() => {
     /* sin service worker la app sigue funcionando con conexión */
   });

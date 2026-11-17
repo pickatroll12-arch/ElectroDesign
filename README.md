@@ -55,6 +55,10 @@ chmod +x ElectroDesign-*.AppImage
 ./ElectroDesign-*.AppImage
 ```
 
+Sin instalar nada: `ElectroDesign.html` es la app completa en un solo archivo. Se descarga y se abre
+con doble clic en cualquier navegador, sin conexión. Sirve para probarla en equipos donde no se
+pueden ejecutar programas.
+
 ## Desarrollo
 
 Requiere Node.js 22 o superior.
@@ -65,6 +69,7 @@ npm run dev          # WebApp en modo desarrollo
 npm test             # pruebas
 npm run typecheck    # revisión de tipos
 npm run electron     # compila y abre la app de escritorio
+npm run build:html   # genera dist-html/ElectroDesign.html, la app en un solo archivo
 npm run dist:linux   # genera AppImage y tar.gz en release/
 npm run dist:win     # genera .exe portable y .zip en release/
 ```

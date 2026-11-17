@@ -18,9 +18,10 @@ import {
   undo,
   useStore,
   avisar,
+  preguntar,
 } from '../model/store';
 import { GRID } from '../model/geometry';
-import { abrirProyecto, confirmarDescarte, guardarProyecto } from '../io/archivos';
+import { abrirConPregunta, confirmarDescarte, guardarProyecto } from '../io/archivos';
 import { exportarPDF, exportarSVG } from '../io/exportar';
 import { Canvas } from './Canvas';
 import { Palette } from './Palette';
@@ -74,7 +75,7 @@ export function Editor() {
       }
       if (ctrl && k === 'o') {
         e.preventDefault();
-        if (confirmarDescarte()) void abrirProyecto();
+        void abrirConPregunta();
         return;
       }
       if (esCampo(e.target)) return;
@@ -142,11 +143,11 @@ export function Editor() {
   return (
     <div className="editor">
       <header className="barra">
-        <button className="marca" onClick={() => confirmarDescarte() && irA('inicio')} title="Volver al inicio">
+        <button className="marca" onClick={() => void confirmarDescarte().then((ok) => ok && irA('inicio'))} title="Volver al inicio">
           ElectroDesign
         </button>
         <div className="grupo">
-          <button onClick={() => confirmarDescarte() && void abrirProyecto()} title="Abrir (Ctrl+O)">
+          <button onClick={() => void abrirConPregunta()} title="Abrir (Ctrl+O)">
             Abrir
           </button>
           <button onClick={() => void guardarProyecto()} title="Guardar (Ctrl+S)">
@@ -254,7 +255,7 @@ export function Editor() {
                   aria-label={`Eliminar ${h.name}`}
                   onClick={(e) => {
                     e.stopPropagation();
-                    if (window.confirm(`¿Eliminar la hoja "${h.name}"?`)) removeSheet(h.id);
+                    void preguntar(`¿Eliminar la hoja "${h.name}"?`, 'Eliminar').then((ok) => ok && removeSheet(h.id));
                   }}
                 >
                   ×
