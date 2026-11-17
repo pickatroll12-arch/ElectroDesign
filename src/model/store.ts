@@ -3,7 +3,8 @@ import type { End, Instance, Modo, Project, Pt, Rot, Sheet, Wire } from './types
 import { isPortEnd } from './types';
 import { newId, newProject, newSheet } from './project';
 import { defaultProps, getSymbol } from '../symbols';
-import { GRID, instSize, snap } from './geometry';
+import { GRID, instSize, resolveEnd, snap } from './geometry';
+import type { WireTipo } from './conductores';
 
 export type Tool = 'seleccionar' | 'mover' | 'conductor' | `colocar:${string}`;
 export type Pantalla = 'inicio' | 'editor';
@@ -14,6 +15,8 @@ export interface State {
   sheetId: string;
   selection: string[];
   tool: Tool;
+  /** Tipo con el que se trazan los conductores nuevos. */
+  wireTipo: WireTipo;
   /** Hay cambios sin guardar. */
   dirty: boolean;
   fileName: string;
@@ -34,6 +37,7 @@ function inicial(): State {
     sheetId: project.sheets[0].id,
     selection: [],
     tool: 'seleccionar',
+    wireTipo: 'fase',
     dirty: false,
     fileName: 'Sin título.edz',
     filePath: null,
@@ -164,6 +168,11 @@ export function setTool(tool: Tool) {
   set({ tool, selection: tool === 'seleccionar' ? state.selection : [] });
 }
 
+/** Elige el tipo de conductor y deja lista la herramienta para trazarlo. */
+export function setWireTipo(wireTipo: WireTipo) {
+  set({ wireTipo, tool: 'conductor', selection: [] });
+}
+
 export function select(ids: string[]) {
   set({ selection: ids });
 }
@@ -226,8 +235,40 @@ export function placeSymbol(symId: string, centro: Pt): string {
   return inst.id;
 }
 
+/** Crea un símbolo de tamaño libre (caja o contorno) con la esquina y medidas dadas. */
+export function placeBox(symId: string, x: number, y: number, w: number, h: number): string {
+  const def = getSymbol(symId);
+  const props = { ...defaultProps(def), ...(def.redim ? def.redim.aplicar(w, h) : {}) };
+  const inst: Instance = { id: newId('s'), sym: symId, x, y, rot: 0, props };
+  edit((_p, sheet) => {
+    sheet.instances.push(inst);
+  });
+  return inst.id;
+}
+
+/** Cambia posición y tamaño de un símbolo redimensionable. */
+export function resizeInstance(id: string, x: number, y: number, w: number, h: number) {
+  edit((_p, sheet) => {
+    const i = sheet.instances.find((q) => q.id === id);
+    if (!i) return;
+    const def = getSymbol(i.sym);
+    if (!def.redim) return;
+    const antes = { x: i.x, y: i.y, props: { ...i.props } };
+    i.x = x;
+    i.y = y;
+    Object.assign(i.props, def.redim.aplicar(w, h));
+    // No se achica más allá de un borne que tiene un conductor unido.
+    const bornes = new Set(def.ports(i.props).map((p) => p.id));
+    const cortaConductor = sheet.wires.some((c) =>
+      [c.a, c.b].some((e) => isPortEnd(e) && e.inst === id && !bornes.has(e.port)),
+    );
+    if (cortaConductor) Object.assign(i, antes);
+  });
+}
+
 export function addWire(a: End, b: End, via: Pt[]): string {
   const w: Wire = { id: newId('c'), a, b, via, label: '' };
+  if (state.wireTipo !== 'fase') w.tipo = state.wireTipo;
   edit((_p, sheet) => {
     sheet.wires.push(w);
   });
@@ -323,7 +364,25 @@ export function moveSelectionFrom(base: Sheet, ids: string[], dx: number, dy: nu
 export function setProp(id: string, key: string, value: string) {
   edit((_p, sheet) => {
     const i = sheet.instances.find((x) => x.id === id);
-    if (i) i.props[key] = value;
+    if (!i) return;
+    // Si el cambio hace desaparecer un borne (por ejemplo, quitar la bobina de disparo),
+    // el conductor que llegaba a él queda con el extremo fijo en el mismo punto.
+    const extremos = sheet.wires.flatMap((w) =>
+      (['a', 'b'] as const)
+        .filter((k) => isPortEnd(w[k]) && (w[k] as { inst: string }).inst === id)
+        .map((k) => ({ w, k, pt: resolveEnd(sheet, w[k]) })),
+    );
+    i.props[key] = value;
+    for (const e of extremos) if (e.pt && !resolveEnd(sheet, e.w[e.k])) e.w[e.k] = e.pt;
+  });
+}
+
+export function setWireTipoDe(id: string, tipo: WireTipo) {
+  edit((_p, sheet) => {
+    const w = sheet.wires.find((x) => x.id === id);
+    if (!w) return;
+    if (tipo === 'fase') delete w.tipo;
+    else w.tipo = tipo;
   });
 }
 

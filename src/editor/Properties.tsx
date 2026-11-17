@@ -9,9 +9,11 @@ import {
   rotateSelection,
   setProp,
   setWireLabel,
+  setWireTipoDe,
   useStore,
 } from '../model/store';
 import { getSymbol, type PropDef } from '../symbols';
+import { TIPOS_CONDUCTOR, tipoConductor, type WireTipo } from '../model/conductores';
 
 /** Campo de texto que agrupa todo lo escrito en un solo paso de deshacer. */
 function Campo({
@@ -20,6 +22,7 @@ function Campo({
   onChange,
   unidad,
   opciones,
+  sugerencias,
   largo,
   ayuda,
 }: {
@@ -28,6 +31,8 @@ function Campo({
   onChange: (v: string) => void;
   unidad?: string;
   opciones?: string[];
+  /** Valores propuestos; se puede escribir cualquier otro. */
+  sugerencias?: string[];
   largo?: boolean;
   ayuda?: string;
 }) {
@@ -50,7 +55,23 @@ function Campo({
       ) : largo ? (
         <textarea rows={3} value={value} onChange={(e) => onChange(e.target.value)} {...comunes} />
       ) : (
-        <input type="text" value={value} placeholder={ayuda} onChange={(e) => onChange(e.target.value)} {...comunes} />
+        <>
+          <input
+            type="text"
+            value={value}
+            placeholder={ayuda}
+            list={sugerencias ? `sug-${label}` : undefined}
+            onChange={(e) => onChange(e.target.value)}
+            {...comunes}
+          />
+          {sugerencias && (
+            <datalist id={`sug-${label}`}>
+              {sugerencias.map((o) => (
+                <option key={o} value={o} />
+              ))}
+            </datalist>
+          )}
+        </>
       )}
     </label>
   );
@@ -151,7 +172,8 @@ export function Properties() {
             key={p.key}
             label={p.label}
             unidad={p.unidad}
-            opciones={p.opciones}
+            opciones={p.libre ? undefined : p.opciones}
+            sugerencias={p.libre ? p.opciones : undefined}
             largo={p.largo}
             value={inst.props[p.key] ?? ''}
             onChange={(v) => setProp(inst.id, p.key, v)}
@@ -167,6 +189,16 @@ export function Properties() {
     return (
       <div className="propiedades">
         <h3>Conductor</h3>
+        <label className="campo">
+          <span>Tipo de conductor</span>
+          <select value={tipoConductor(wire.tipo).id} onChange={(e) => setWireTipoDe(wire.id, e.target.value as WireTipo)}>
+            {TIPOS_CONDUCTOR.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.nombre}
+              </option>
+            ))}
+          </select>
+        </label>
         <p className="nota">Indica cantidad, sección, tipo y canalización (RIC N°18, 6.3.15.2).</p>
         <Campo
           label="Descripción del tramo"

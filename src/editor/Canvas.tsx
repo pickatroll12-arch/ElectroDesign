@@ -14,8 +14,10 @@ import {
   sheetPorts,
   snap,
   snapPt,
+  type Box,
   type WorldPort,
 } from '../model/geometry';
+import { tipoConductor } from '../model/conductores';
 import {
   addWire,
   beginTransaction,
@@ -23,7 +25,9 @@ import {
   endTransaction,
   getState,
   moveSelectionFrom,
+  placeBox,
   placeSymbol,
+  resizeInstance,
   select,
   setTool,
   useStore,
@@ -42,7 +46,12 @@ type Drag =
   | { kind: 'pan'; sx: number; sy: number; vx: number; vy: number }
   | { kind: 'mover'; start: Pt; base: Sheet; ids: string[]; moved: boolean }
   | { kind: 'marco'; start: Pt; add: string[] }
+  | { kind: 'caja'; sym: string; start: Pt }
+  | { kind: 'redim'; id: string; mano: Mano; base: Box; paso: number; minimo: number; moved: boolean }
   | null;
+
+/** Manijas para cambiar el tamaño: las cuatro esquinas, o el extremo derecho de una barra. */
+type Mano = 'nw' | 'ne' | 'sw' | 'se' | 'e';
 
 interface Borrador {
   a: End;
@@ -59,6 +68,7 @@ export function Canvas({ onCursor }: { onCursor?: (p: Pt | null, zoom: number) =
   const sheetId = useStore((s) => s.sheetId);
   const selection = useStore((s) => s.selection);
   const tool = useStore((s) => s.tool);
+  const wireTipo = useStore((s) => s.wireTipo);
   const sheet = project.sheets.find((h) => h.id === sheetId) ?? project.sheets[0];
   const geom = sheetGeom(sheet.format, sheet.landscape);
 
@@ -186,7 +196,9 @@ export function Canvas({ onCursor }: { onCursor?: (p: Pt | null, zoom: number) =
   const puertos = useMemo(() => (tool === 'conductor' ? sheetPorts(sheet) : []), [tool, sheet]);
 
   const puertoEn = (p: Pt): WorldPort | null => {
-    const tol = Math.max(2.4, 12 / viewRef.current.k);
+    // Radio de captura: unos 12 px, pero siempre menor que el paso de la grilla para
+    // que un clic en el punto vecino no salte al borne.
+    const tol = Math.min(3.5, Math.max(2, 12 / viewRef.current.k));
     let mejor: WorldPort | null = null;
     let d = tol;
     for (const q of puertos) {
@@ -209,7 +221,7 @@ export function Canvas({ onCursor }: { onCursor?: (p: Pt | null, zoom: number) =
 
     // Dos dedos: zoom y desplazamiento. Cancela cualquier otro gesto en curso.
     if (punteros.current.size === 2) {
-      if (drag.current?.kind === 'mover' && drag.current.moved) endTransaction();
+      if ((drag.current?.kind === 'mover' || drag.current?.kind === 'redim') && drag.current.moved) endTransaction();
       drag.current = null;
       setMarco(null);
       const [p1, p2] = [...punteros.current.values()];
@@ -231,7 +243,25 @@ export function Canvas({ onCursor }: { onCursor?: (p: Pt | null, zoom: number) =
     }
     if (e.button !== 0) return;
 
+    const mano = (e.target as Element).getAttribute('data-mano') as Mano | null;
+    if (mano && tool === 'seleccionar') {
+      const inst = currentSheet().instances.find((i) => i.id === getState().selection[0]);
+      const redim = inst && getSymbol(inst.sym).redim;
+      if (inst && redim) {
+        drag.current = { kind: 'redim', id: inst.id, mano, base: instBox(inst), paso: redim.paso, minimo: redim.minimo, moved: false };
+        return;
+      }
+    }
+
     if (tool.startsWith('colocar:')) {
+      // Las cajas y los contornos de tablero se dibujan arrastrando.
+      const def = getSymbol(tool.slice(8));
+      if (def.redim && !def.redim.soloAncho) {
+        const inicio = snapPt(w);
+        drag.current = { kind: 'caja', sym: def.id, start: inicio };
+        setMarco({ a: inicio, b: inicio });
+        return;
+      }
       const id = placeSymbol(tool.slice(8), w);
       // El texto se coloca una vez y queda seleccionado para escribirlo.
       if (tool === 'colocar:texto') {
@@ -314,6 +344,32 @@ export function Canvas({ onCursor }: { onCursor?: (p: Pt | null, zoom: number) =
       setMarco({ a: d.start, b: w });
       return;
     }
+    if (d?.kind === 'caja') {
+      setMarco({ a: d.start, b: snapPt(w) });
+      return;
+    }
+    if (d?.kind === 'redim') {
+      const b = d.base;
+      const lado = (v: number) => Math.max(d.minimo, Math.round(v / d.paso) * d.paso);
+      let x1 = b.x;
+      let y1 = b.y;
+      let x2 = b.x + b.w;
+      let y2 = b.y + b.h;
+      if (d.mano === 'e' || d.mano === 'ne' || d.mano === 'se') x2 = x1 + lado(w.x - x1);
+      if (d.mano === 'nw' || d.mano === 'sw') x1 = x2 - lado(x2 - w.x);
+      if (d.mano === 'se' || d.mano === 'sw') y2 = y1 + lado(w.y - y1);
+      if (d.mano === 'ne' || d.mano === 'nw') y1 = y2 - lado(y2 - w.y);
+      const actual = currentSheet().instances.find((i) => i.id === d.id);
+      const ya = actual && instBox(actual);
+      if (ya && (ya.x !== x1 || ya.y !== y1 || ya.w !== x2 - x1 || ya.h !== y2 - y1)) {
+        if (!d.moved) {
+          d.moved = true;
+          beginTransaction();
+        }
+        resizeInstance(d.id, x1, y1, x2 - x1, y2 - y1);
+      }
+      return;
+    }
     if (tool.startsWith('colocar:')) {
       setFantasma(w);
     } else if (tool === 'conductor') {
@@ -328,7 +384,18 @@ export function Canvas({ onCursor }: { onCursor?: (p: Pt | null, zoom: number) =
     if (punteros.current.size < 2) pellizco.current = null;
     const d = drag.current;
     drag.current = null;
-    if (d?.kind === 'mover' && d.moved) endTransaction();
+    if ((d?.kind === 'mover' || d?.kind === 'redim') && d.moved) endTransaction();
+    if (d?.kind === 'caja') {
+      const fin = aMundo(e);
+      const c = boxFromPoints(d.start, snapPt(fin));
+      setMarco(null);
+      const redim = getSymbol(d.sym).redim!;
+      const lado = (v: number) => Math.max(redim.minimo, Math.round(v / redim.paso) * redim.paso);
+      // Un clic sin arrastrar coloca la caja con su tamaño por defecto.
+      const id = c.w < redim.minimo || c.h < redim.minimo ? placeSymbol(d.sym, fin) : placeBox(d.sym, c.x, c.y, lado(c.w), lado(c.h));
+      setTool('seleccionar');
+      select([id]);
+    }
     if (d?.kind === 'marco') {
       const w = aMundo(e);
       const caja = boxFromPoints(d.start, w);
@@ -365,7 +432,24 @@ export function Canvas({ onCursor }: { onCursor?: (p: Pt | null, zoom: number) =
     return routeWire(sheet, temp);
   }, [borrador, sheet]);
 
-  const symFantasma = tool.startsWith('colocar:') ? getSymbol(tool.slice(8)) : null;
+  const symElegido = tool.startsWith('colocar:') ? getSymbol(tool.slice(8)) : null;
+  const symFantasma = symElegido && !(symElegido.redim && !symElegido.redim.soloAncho) ? symElegido : null;
+
+  // Manijas del símbolo seleccionado, si se puede cambiar de tamaño.
+  const manijas = useMemo(() => {
+    if (tool !== 'seleccionar' || selection.length !== 1) return [];
+    const inst = sheet.instances.find((i) => i.id === selection[0]);
+    const redim = inst && getSymbol(inst.sym).redim;
+    if (!inst || !redim || inst.rot !== 0) return [];
+    const b = instBox(inst);
+    if (redim.soloAncho) return [{ id: 'e' as Mano, x: b.x + b.w, y: b.y + b.h / 2, cursor: 'ew-resize' }];
+    return [
+      { id: 'nw' as Mano, x: b.x, y: b.y, cursor: 'nwse-resize' },
+      { id: 'ne' as Mano, x: b.x + b.w, y: b.y, cursor: 'nesw-resize' },
+      { id: 'sw' as Mano, x: b.x, y: b.y + b.h, cursor: 'nesw-resize' },
+      { id: 'se' as Mano, x: b.x + b.w, y: b.y + b.h, cursor: 'nwse-resize' },
+    ];
+  }, [tool, selection, sheet]);
   const propsFantasma = useMemo(() => (symFantasma ? defaultProps(symFantasma) : {}), [symFantasma]);
 
   const cursor = tool === 'mover' ? 'grab' : tool === 'seleccionar' ? 'default' : 'crosshair';
@@ -442,7 +526,7 @@ export function Canvas({ onCursor }: { onCursor?: (p: Pt | null, zoom: number) =
           <path
             d={rutaBorrador.map((p, k) => `${k ? 'L' : 'M'}${p.x} ${p.y}`).join(' ')}
             fill="none"
-            stroke={AZUL}
+            stroke={wireTipo === 'fase' ? AZUL : tipoConductor(wireTipo).color}
             strokeWidth={Math.max(0.35, 1.5 * px)}
             strokeDasharray={`${4 * px} ${3 * px}`}
           />
@@ -461,6 +545,21 @@ export function Canvas({ onCursor }: { onCursor?: (p: Pt | null, zoom: number) =
           />
         )}
       </g>
+
+      {manijas.map((m) => (
+        <rect
+          key={m.id}
+          data-mano={m.id}
+          x={m.x - 5 * px}
+          y={m.y - 5 * px}
+          width={10 * px}
+          height={10 * px}
+          fill="#fff"
+          stroke={AZUL}
+          strokeWidth={1.5 * px}
+          style={{ cursor: m.cursor }}
+        />
+      ))}
     </svg>
   );
 }

@@ -1,5 +1,6 @@
 import { strToU8, strFromU8, zipSync, unzipSync } from 'fflate';
 import type { Modo, Project, ProjectInfo, Sheet } from './types';
+import { esWireTipo } from './conductores';
 
 let contador = 0;
 /** Identificador corto y único dentro del proyecto. */
@@ -118,7 +119,14 @@ function normalizar(data: unknown): Project {
     wires: Array.isArray(s.wires)
       ? s.wires
           .filter((w) => w && typeof w.id === 'string' && w.a && w.b)
-          .map((w) => ({ id: w.id, a: w.a, b: w.b, via: Array.isArray(w.via) ? w.via : [], label: w.label ?? '' }))
+          .map((w) => ({
+            id: w.id,
+            a: w.a,
+            b: w.b,
+            via: Array.isArray(w.via) ? w.via : [],
+            label: w.label ?? '',
+            ...(esWireTipo(w.tipo) && w.tipo !== 'fase' ? { tipo: w.tipo } : {}),
+          }))
       : [],
   }));
   if (sheets.length === 0) sheets.push(newSheet('unifilar', 1));

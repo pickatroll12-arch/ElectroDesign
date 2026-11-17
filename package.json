@@ -1,6 +1,6 @@
 {
   "name": "electrodesign",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Plataforma de diseño eléctrico: diagramas unilineales, multifilares y armado de tableros según SEC/RIC",
   "license": "GPL-3.0-only",
   "author": "ElectroDesign",
