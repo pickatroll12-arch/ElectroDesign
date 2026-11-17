@@ -10,8 +10,12 @@ import {
   duplicateSelection,
   getState,
   moveSelectionFrom,
+  placeBox,
   placeSymbol,
   redo,
+  resizeInstance,
+  setProp,
+  setWireTipo,
   rotateSelection,
   select,
   undo,
@@ -190,5 +194,46 @@ describe('edición', () => {
     expect(hoja.wires).toHaveLength(2);
     expect(hoja.instances.map((i) => i.props.tag)).toEqual(['Q1', 'ID1', 'Q2', 'ID2']);
     expect(getState().selection).toHaveLength(2);
+  });
+
+  it('traza conductores del tipo elegido y los conserva al guardar', () => {
+    const a = placeSymbol('inversor', { x: 100, y: 100 });
+    const b = placeSymbol('modulo_fv', { x: 100, y: 140 });
+    setWireTipo('cc+');
+    addWire({ inst: a, port: 'b' }, { inst: b, port: 'a' }, []);
+    setWireTipo('fase');
+    addWire({ x: 50, y: 50 }, { x: 50, y: 80 }, []);
+    const p = parseProject(serializeProject(getState().project));
+    expect(p.sheets[0].wires.map((w) => w.tipo)).toEqual(['cc+', undefined]);
+  });
+
+  it('dibuja cajas del tamaño pedido y las redimensiona', () => {
+    const id = placeBox('tablero', 50, 40, 95, 65);
+    expect(instBox(currentSheet().instances[0])).toEqual({ x: 50, y: 40, w: 95, h: 65 });
+    resizeInstance(id, 40, 30, 120, 80);
+    expect(instBox(currentSheet().instances[0])).toEqual({ x: 40, y: 30, w: 120, h: 80 });
+  });
+
+  it('no achica una barra por debajo de un borne con conductor', () => {
+    const barra = placeSymbol('barra', { x: 100, y: 100 }); // 60 mm, bornes p0 a p12
+    addWire({ inst: barra, port: 'p10' }, { x: 120, y: 150 }, []);
+    const { x, y } = currentSheet().instances[0];
+    resizeInstance(barra, x, y, 40, 0);
+    expect(currentSheet().instances[0].props.largo).toBe('60');
+    resizeInstance(barra, x, y, 100, 0);
+    expect(currentSheet().instances[0].props.largo).toBe('100');
+    expect(routeWire(currentSheet(), currentSheet().wires[0])).not.toBeNull();
+  });
+
+  it('el disyuntor con bobina de disparo gana un borne lateral y lo suelta sin perder el conductor', () => {
+    const q = placeSymbol('disyuntor', { x: 100, y: 100 });
+    expect(instPorts(currentSheet().instances[0]).map((p) => p.port)).toEqual(['a', 'b']);
+    setProp(q, 'disparo', 'Bobina de disparo');
+    const lateral = instPorts(currentSheet().instances[0]).find((p) => p.port === 'd');
+    expect(lateral).toMatchObject({ x: 95, y: 100 });
+    addWire({ inst: q, port: 'd' }, { x: 70, y: 100 }, []);
+    setProp(q, 'disparo', 'No');
+    expect(currentSheet().wires[0].a).toEqual({ x: 95, y: 100 });
+    expect(routeWire(currentSheet(), currentSheet().wires[0])).not.toBeNull();
   });
 });

@@ -1,5 +1,7 @@
 // Modelo de datos del proyecto. Todas las medidas están en milímetros de papel.
 
+import type { WireTipo } from './conductores';
+
 export interface Pt {
   x: number;
   y: number;
@@ -28,6 +30,8 @@ export interface Wire {
   via: Pt[];
   /** Texto del tramo: sección, cantidad, canalización (RIC N°18, 6.3.15.2). */
   label: string;
+  /** Fase si no se indica. */
+  tipo?: WireTipo;
 }
 
 export type FormatId = '4A0' | '2A0' | 'A0' | 'A1' | 'A2' | 'A3' | 'A4';

@@ -219,6 +219,15 @@ button:disabled {
   font-weight: 600;
 }
 
+.barra .tipo-conductor {
+  border: 1px solid var(--azul-borde);
+  background: var(--azul-panel);
+  color: #e6eef6;
+  border-radius: 7px;
+  padding: 5px 6px;
+  max-width: 190px;
+}
+
 .barra .marca {
   font-weight: 700;
   color: var(--acento);

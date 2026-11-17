@@ -2,6 +2,13 @@ import { useMemo, useState } from 'react';
 import { CATEGORIAS, SYMBOLS, defaultProps, type SymbolDef } from '../symbols';
 import { setTool, useStore } from '../model/store';
 
+/** Minúsculas y sin tildes, para que "señalizacion" encuentre "Señalización". */
+const plano = (s: string) =>
+  s
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+
 /** Miniatura del símbolo, encuadrada en un recuadro fijo. */
 export function Miniatura({ def, lado = 40 }: { def: SymbolDef; lado?: number }) {
   const props = useMemo(() => defaultProps(def), [def]);
@@ -25,15 +32,17 @@ export function Miniatura({ def, lado = 40 }: { def: SymbolDef; lado?: number })
 export function Palette({ onElegir }: { onElegir?: () => void }) {
   const tool = useStore((s) => s.tool);
   const [filtro, setFiltro] = useState('');
-  const f = filtro.trim().toLowerCase();
-  const visibles = SYMBOLS.filter((s) => !f || s.nombre.toLowerCase().includes(f) || s.categoria.toLowerCase().includes(f));
+  const f = plano(filtro.trim());
+  const visibles = SYMBOLS.filter(
+    (s) => !f || plano(s.nombre).includes(f) || plano(s.categoria).includes(f) || (s.alias ?? []).some((a) => plano(a).includes(f)),
+  );
 
   return (
     <div className="paleta">
       <input
         className="buscar"
         type="search"
-        placeholder="Buscar símbolo"
+        placeholder="Buscar símbolo o sigla"
         value={filtro}
         onChange={(e) => setFiltro(e.target.value)}
         aria-label="Buscar símbolo"

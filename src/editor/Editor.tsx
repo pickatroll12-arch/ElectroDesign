@@ -14,6 +14,7 @@ import {
   select,
   setSheet,
   setTool,
+  setWireTipo,
   undo,
   useStore,
   avisar,
@@ -24,10 +25,18 @@ import { exportarPDF, exportarSVG } from '../io/exportar';
 import { Canvas } from './Canvas';
 import { Palette } from './Palette';
 import { Properties } from './Properties';
+import { TIPOS_CONDUCTOR, type WireTipo } from '../model/conductores';
+import { getSymbol } from '../symbols';
 
 const esCampo = (t: EventTarget | null) => {
   const el = t as HTMLElement | null;
   return !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT');
+};
+
+/** Las cajas y contornos se dibujan arrastrando, no con un clic. */
+const dibujaArrastrando = (tool: string) => {
+  const r = getSymbol(tool.slice(8)).redim;
+  return !!r && !r.soloAncho;
 };
 
 async function exportar(tipo: 'pdf' | 'pdf-hoja' | 'svg') {
@@ -42,6 +51,7 @@ async function exportar(tipo: 'pdf' | 'pdf-hoja' | 'svg') {
 
 export function Editor() {
   const tool = useStore((s) => s.tool);
+  const wireTipo = useStore((s) => s.wireTipo);
   const sheets = useStore((s) => s.project.sheets);
   const sheetId = useStore((s) => s.sheetId);
   const fileName = useStore((s) => s.fileName);
@@ -90,6 +100,10 @@ export function Editor() {
         rotateSelection();
       } else if (k === 'c' && !ctrl) {
         setTool('conductor');
+      } else if (k === 't' && !ctrl) {
+        setWireTipo('tierra');
+      } else if (k === 'b' && !ctrl) {
+        setTool('colocar:tablero');
       } else if (k === 'v' && !ctrl) {
         setTool('seleccionar');
       } else if (k === 'h' && !ctrl) {
@@ -163,6 +177,26 @@ export function Editor() {
           {herramienta('seleccionar', 'Seleccionar', 'V')}
           {herramienta('mover', 'Mover vista', 'H')}
           {herramienta('conductor', 'Conductor', 'C')}
+          <select
+            className="tipo-conductor"
+            value={wireTipo}
+            onChange={(e) => setWireTipo(e.target.value as WireTipo)}
+            title="Tipo de conductor que se va a trazar (T: tierra de protección)"
+            aria-label="Tipo de conductor"
+          >
+            {TIPOS_CONDUCTOR.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.nombre}
+              </option>
+            ))}
+          </select>
+          <button
+            className={tool === 'colocar:tablero' ? 'activo' : ''}
+            onClick={() => setTool('colocar:tablero')}
+            title="Dibujar el contorno de un tablero arrastrando (B)"
+          >
+            Caja
+          </button>
         </div>
         <div className="grupo">
           <button onClick={rotateSelection} disabled={!haySeleccion} title="Rotar 90° (R)">
@@ -189,7 +223,10 @@ export function Editor() {
           <Canvas onCursor={(p, k) => setCursor({ p, k })} />
           <div className="ayuda-herramienta">
             {tool === 'conductor' && 'Haz clic en un borne para empezar. Clic en el plano agrega un quiebre; doble clic o Enter termina; Esc cancela.'}
-            {tool.startsWith('colocar:') && 'Haz clic en el plano para colocar el símbolo. Esc para terminar.'}
+            {tool.startsWith('colocar:') &&
+              (dibujaArrastrando(tool)
+                ? 'Arrastra sobre el plano para dibujar la caja. Después puedes ajustarla desde sus esquinas.'
+                : 'Haz clic en el plano para colocar el símbolo. Esc para terminar.')}
           </div>
         </main>
         <aside className={`lateral der ${panel === 'props' ? 'abierto' : ''}`}>

@@ -18,6 +18,8 @@ export interface PropDef {
   def: string;
   unidad?: string;
   opciones?: string[];
+  /** Con `opciones`: son solo sugerencias y se puede escribir otro valor. */
+  libre?: boolean;
   /** Campo de varias líneas. */
   largo?: boolean;
 }
@@ -51,6 +53,14 @@ export interface SymbolDef {
   junctionOnConnect?: boolean;
   /** Se dibuja detrás del resto y solo se selecciona por su borde. */
   fondo?: boolean;
+  /** Otras palabras con las que se encuentra en el buscador (siglas, nombres en inglés). */
+  alias?: string[];
+  /**
+   * El símbolo cambia de tamaño arrastrando sus manijas.
+   * `paso` es el múltiplo en mm; `soloAncho` deja una sola manija en el extremo derecho.
+   * Los que no son `soloAncho` se dibujan arrastrando sobre el plano.
+   */
+  redim?: { paso: number; minimo: number; soloAncho?: boolean; aplicar: (w: number, h: number) => Props };
 }
 
 // ---------- utilidades de dibujo ----------
@@ -76,6 +86,9 @@ const T = (x: number, y: number, s: string, size: number, rot: Rot, extra = '') 
   `font-family="${FONT}" text-anchor="middle" stroke="none" fill="#000" ${extra}>${esc(s)}</text>`;
 
 const FILL = 'fill="#000"';
+const ACHURADA = 'Anexo 18.5 (achurada)';
+/** Letra de color de una luz piloto según ANSI: R rojo, G verde, A ámbar, W blanco, B azul. */
+const LETRA_COLOR: Record<string, string> = { Rojo: 'R', Verde: 'G', Ámbar: 'A', Blanco: 'W', Azul: 'B' };
 const DASH = 'stroke-dasharray="1.5 1"';
 
 const tb = (w: number, h: number): PortDef[] => [
@@ -92,13 +105,24 @@ const juntar = (...partes: (string | false | undefined)[]) => partes.filter(Bool
 const con = (v: string | undefined, unidad: string) => (v ? `${v} ${unidad}` : '');
 const polosX = (p: Props, v: string) => (p.polos ? `${p.polos}x${v}` : v);
 
-/** Contacto del disyuntor tal como aparece en el anexo 18.5. */
-const contactoRic = (cx: number, y0: number) =>
-  C(cx, y0, 0.9) +
-  C(cx, y0 + 8, 0.9) +
-  P(`M${n(cx + 0.7)} ${n(y0 + 0.6)} Q${n(cx + 4)} ${n(y0 + 4)} ${n(cx + 0.7)} ${n(y0 + 7.4)}`) +
-  L(cx + 1.4, y0 + 4, cx + 4, y0 + 4) +
-  L(cx + 3.2, y0 + 3, cx + 3.2, y0 + 5);
+/**
+ * Contacto del disyuntor como en el anexo 18.5: dos bornes, el arco y una marca
+ * por polo cruzando el arco (una para 1x, tres para 3x).
+ */
+const contactoRic = (cx: number, y0: number, polos = 1) => {
+  const cant = Math.min(4, Math.max(1, polos || 1));
+  let marcas = '';
+  for (let i = 0; i < cant; i++) {
+    const y = y0 + 4 + (i - (cant - 1) / 2) * 0.75;
+    marcas += L(cx + 1.2, y, cx + 3.8, y);
+  }
+  return (
+    C(cx, y0, 0.9) +
+    C(cx, y0 + 8, 0.9) +
+    P(`M${n(cx + 0.7)} ${n(y0 + 0.6)} Q${n(cx + 4)} ${n(y0 + 4)} ${n(cx + 0.7)} ${n(y0 + 7.4)}`) +
+    marcas
+  );
+};
 
 const tierra = (cx: number, y: number) =>
   L(cx - 3, y, cx + 3, y) + L(cx - 2, y + 1.3, cx + 2, y + 1.3) + L(cx - 1, y + 2.6, cx + 1, y + 2.6);
@@ -111,6 +135,8 @@ const PROPS_PROTECCION: PropDef[] = [
   { key: 'curva', label: 'Curva de operación', def: 'C', opciones: ['B', 'C', 'D', 'K', 'Z', ''] },
   MARCA,
 ];
+
+const conDisparo = (p: Props) => !!p.disparo && p.disparo !== 'No';
 
 const etiquetaProteccion = (p: Props) =>
   juntar(p.in && `${polosX(p, p.in)} A`, con(p.icu, 'kA'), p.curva && `Curva ${p.curva}`, p.marca);
@@ -148,6 +174,24 @@ const LISTA: SymbolDef[] = [
       juntar(p.tipo && `Tipo ${p.tipo}`, juntar(con(p.potencia, 'kW'), con(p.tension, 'V')).join(', '), p.acometida, p.interruptor),
   },
   {
+    id: 'alimentacion',
+    alias: ['llegada', 'entrada', 'flecha', 'viene de', 'acometida'],
+    nombre: 'Llegada de alimentador',
+    categoria: 'Acometida y medida',
+    origen: 'uso habitual en planos de tableros (flecha de llegada)',
+    w: 10,
+    h: 10,
+    ports: () => bottom(10, 10),
+    draw: () => P('M3.3 0.4 L6.7 0.4 L5 3.6 Z') + L(5, 3.6, 5, 10),
+    props: [
+      TAG,
+      { key: 'origen', label: 'Viene de', def: '' },
+      { key: 'conductor', label: 'Conductor', def: '' },
+      { key: 'tension', label: 'Tensión', def: '', unidad: 'V' },
+    ],
+    etiqueta: (p) => juntar(p.origen && `Viene de ${p.origen}`, p.conductor, con(p.tension, 'V')),
+  },
+  {
     id: 'medidor',
     nombre: 'Medidor',
     categoria: 'Acometida y medida',
@@ -161,22 +205,76 @@ const LISTA: SymbolDef[] = [
     prefijo: 'ME',
   },
 
+  {
+    id: 'instrumento',
+    alias: ['voltimetro', 'amperimetro', 'analizador', 'frecuencimetro', 'medida'],
+    nombre: 'Instrumento de medida',
+    categoria: 'Acometida y medida',
+    origen: 'ANSI/IEEE 315',
+    w: 10,
+    h: 10,
+    ports: () => top(10),
+    draw: (p, rot) => {
+      const t = p.tipo || '';
+      return L(5, 0, 5, 1.4) + C(5, 5.6, 4.2) + T(5, 5.6, t, t.length > 2 ? 2.2 : t.length > 1 ? 2.8 : 3.6, rot);
+    },
+    props: [
+      TAG,
+      { key: 'tipo', label: 'Magnitud', def: 'V', opciones: ['V', 'A', 'kW', 'kWh', 'Hz', 'FP', 'RPM'], libre: true },
+      { key: 'escala', label: 'Escala', def: '' },
+      MARCA,
+    ],
+    etiqueta: (p) => juntar(p.escala, p.marca),
+    etiquetaPos: 'abajo',
+  },
+  {
+    id: 'tc',
+    alias: ['ct', 'transformador de corriente', 'toroide'],
+    nombre: 'Transformador de corriente',
+    categoria: 'Acometida y medida',
+    origen: 'ANSI/IEEE 315',
+    w: 10,
+    h: 10,
+    ports: () => tb(10, 10),
+    draw: () => L(5, 0, 5, 10) + P('M5 2 a1 1 0 0 1 0 2 a1 1 0 0 1 0 2 a1 1 0 0 1 0 2') + L(6, 2, 8.5, 2) + L(6, 8, 8.5, 8),
+    props: [
+      TAG,
+      { key: 'relacion', label: 'Relación', def: '100/5', unidad: 'A' },
+      { key: 'clase', label: 'Clase', def: '0,5' },
+      { key: 'burden', label: 'Potencia', def: '', unidad: 'VA' },
+    ],
+    etiqueta: (p) => juntar(con(p.relacion, 'A'), p.clase && `Cl. ${p.clase}`, con(p.burden, 'VA')),
+    prefijo: 'TC',
+  },
+
   // ===== Protección =====
   {
     id: 'disyuntor',
+    alias: ['breaker', 'automatico', 'mcb', 'termomagnetico'],
     nombre: 'Disyuntor termomagnético',
     categoria: 'Protección',
     origen: 'RIC N°18, anexo 18.5',
     w: 10,
     h: 20,
-    ports: () => tb(10, 20),
-    draw: () => L(5, 0, 5, 5.1) + contactoRic(5, 6) + L(5, 14.9, 5, 20),
-    props: PROPS_PROTECCION,
+    // Con disparo a distancia aparece un borne a la izquierda para el mando
+    // (parada de emergencia, relé), unido al contacto por el zigzag de la bobina.
+    ports: (p) => (conDisparo(p) ? [...tb(10, 20), { id: 'd', x: 0, y: 10 }] : tb(10, 20)),
+    draw: (p) =>
+      L(5, 0, 5, 5.1) +
+      contactoRic(5, 6, parseInt(p.polos, 10)) +
+      L(5, 14.9, 5, 20) +
+      (conDisparo(p) ? P('M0 10 L2.4 10 M3.6 7.6 L2.4 8.4 L3.6 9.2 L2.4 10 L3.6 10.8 L2.4 11.6 L3.6 12.4') : ''),
+    props: [
+      ...PROPS_PROTECCION.slice(0, -1),
+      { key: 'disparo', label: 'Disparo a distancia', def: 'No', opciones: ['No', 'Bobina de disparo', 'Bobina de mínima tensión'] },
+      MARCA,
+    ],
     etiqueta: etiquetaProteccion,
     prefijo: 'Q',
   },
   {
     id: 'diferencial',
+    alias: ['rcd', 'id', 'rccb'],
     nombre: 'Protector diferencial',
     categoria: 'Protección',
     origen: 'RIC N°18, anexo 18.5',
@@ -203,6 +301,7 @@ const LISTA: SymbolDef[] = [
   },
   {
     id: 'caja_moldeada',
+    alias: ['mccb', 'breaker'],
     nombre: 'Interruptor de caja moldeada',
     categoria: 'Protección',
     origen: 'ANSI/IEEE 315',
@@ -223,6 +322,7 @@ const LISTA: SymbolDef[] = [
   },
   {
     id: 'interruptor_potencia',
+    alias: ['52', 'vcb', 'breaker'],
     nombre: 'Interruptor de potencia (52)',
     categoria: 'Protección',
     origen: 'ANSI/IEEE 315',
@@ -243,6 +343,7 @@ const LISTA: SymbolDef[] = [
   },
   {
     id: 'fusible',
+    alias: ['fusilera', 'portafusible', 'base portafusible', 'cartucho', 'fuse'],
     nombre: 'Fusible',
     categoria: 'Protección',
     origen: 'ANSI/IEEE 315',
@@ -252,16 +353,18 @@ const LISTA: SymbolDef[] = [
     draw: () => L(5, 0, 5, 20) + R(3.4, 5.5, 3.2, 9),
     props: [
       TAG,
+      { key: 'polos', label: 'Polos', def: '', opciones: ['', '1', '2', '3', '4'] },
       { key: 'in', label: 'Corriente nominal', def: '32', unidad: 'A' },
       { key: 'tipo', label: 'Tipo', def: 'gG', opciones: ['gG', 'aM', 'gPV', 'gR', 'aR', 'K', 'T', ''] },
       { key: 'tamano', label: 'Tamaño', def: '' },
       MARCA,
     ],
-    etiqueta: (p) => juntar(juntar(con(p.in, 'A'), p.tipo).join(' '), p.tamano, p.marca),
+    etiqueta: (p) => juntar(juntar(p.in && `${polosX(p, p.in)} A`, p.tipo).join(' '), p.tamano, p.marca),
     prefijo: 'F',
   },
   {
     id: 'rele_termico',
+    alias: ['overload', 'ol'],
     nombre: 'Relé térmico de sobrecarga',
     categoria: 'Protección',
     origen: 'ANSI/IEEE 315',
@@ -275,6 +378,7 @@ const LISTA: SymbolDef[] = [
   },
   {
     id: 'sobretension',
+    alias: ['spd', 'dps', 'descargador', 'pararrayos'],
     nombre: 'Protector de sobretensión',
     categoria: 'Protección',
     origen: 'ANSI/IEEE 315',
@@ -299,9 +403,33 @@ const LISTA: SymbolDef[] = [
     prefijo: 'SPD',
   },
 
+  {
+    id: 'rele',
+    alias: ['relay', 'ri', '50', '51', 'proteccion ri', 'anti isla', 'pe', 'parada de emergencia', 'circulo'],
+    nombre: 'Relé de protección',
+    categoria: 'Protección',
+    origen: 'ANSI/IEEE 315 (número de función ANSI)',
+    w: 10,
+    h: 10,
+    ports: () => top(10),
+    draw: (p, rot) => {
+      const f = p.funcion || '';
+      return L(5, 0, 5, 1.4) + C(5, 5.6, 4.2) + T(5, 5.6, f, f.length > 3 ? 1.9 : f.length > 2 ? 2.4 : 3, rot);
+    },
+    props: [
+      TAG,
+      { key: 'funcion', label: 'Función', def: '50/51', opciones: ['50/51', '50N/51N', '27', '59', '81', '67', '87', '32', 'RI', 'PE'], libre: true },
+      { key: 'ajuste', label: 'Ajuste', def: '' },
+      MARCA,
+    ],
+    etiqueta: (p) => juntar(p.ajuste, p.marca),
+    etiquetaPos: 'abajo',
+  },
+
   // ===== Maniobra y control =====
   {
     id: 'seccionador',
+    alias: ['desconectador', 'cuchilla', 'interruptor de corte'],
     nombre: 'Seccionador',
     categoria: 'Maniobra y control',
     origen: 'ANSI/IEEE 315',
@@ -321,6 +449,7 @@ const LISTA: SymbolDef[] = [
   },
   {
     id: 'seccionador_fusible',
+    alias: ['fusilera', 'portafusible', 'base portafusible', 'desconectador fusible'],
     nombre: 'Seccionador fusible',
     categoria: 'Maniobra y control',
     origen: 'ANSI/IEEE 315',
@@ -359,6 +488,7 @@ const LISTA: SymbolDef[] = [
   },
   {
     id: 'transferencia',
+    alias: ['ats', 'tta', 'atf'],
     nombre: 'Transferencia automática (ATS)',
     categoria: 'Maniobra y control',
     origen: 'ANSI/IEEE 315',
@@ -392,6 +522,62 @@ const LISTA: SymbolDef[] = [
       juntar(p.in && `${polosX(p, p.in)} A`, p.clase && `Clase ${p.clase}`, p.transicion && `Transición ${p.transicion.toLowerCase()}`, p.marca),
   },
 
+  {
+    id: 'cutout',
+    alias: ['cut out', 'fusilera', 'desconectador fusible', 'piola', 'intemperie'],
+    nombre: 'Desconectador fusible (cut-out)',
+    categoria: 'Maniobra y control',
+    origen: 'ANSI/IEEE 315',
+    w: 10,
+    h: 20,
+    ports: () => tb(10, 20),
+    draw: () =>
+      L(5, 0, 5, 5.5) +
+      L(3.6, 5.5, 6.4, 5.5) +
+      '<rect x="4.1" y="6.2" width="1.8" height="8.8" transform="rotate(22 5 15)"/>' +
+      L(5, 15, 5, 20),
+    props: [
+      TAG,
+      { key: 'un', label: 'Tensión nominal', def: '15', unidad: 'kV' },
+      { key: 'in', label: 'Corriente de la base', def: '100', unidad: 'A' },
+      { key: 'fusible', label: 'Fusible', def: '10K', opciones: ['6K', '10K', '15K', '25K', '40K', '6T', '10T', '15T', '25T'], libre: true },
+      MARCA,
+    ],
+    etiqueta: (p) => juntar(con(p.un, 'kV'), con(p.in, 'A'), p.fusible && `Fusible ${p.fusible}`, p.marca),
+    prefijo: 'F',
+  },
+  {
+    id: 'luz_piloto',
+    alias: ['lampara', 'señalizacion', 'indicador', 'piloto', 'led'],
+    nombre: 'Luz piloto',
+    categoria: 'Maniobra y control',
+    origen: 'ANSI/IEEE 315',
+    w: 10,
+    h: 10,
+    // Dos bornes, para poner varias en fila (R, S, T) o colgar una sola.
+    ports: () => tb(10, 10),
+    draw: (p, rot) => {
+      const rayos = [45, 135, 225, 315]
+        .map((a) => {
+          const c = Math.cos((a * Math.PI) / 180);
+          const s = Math.sin((a * Math.PI) / 180);
+          return L(5 + 3.3 * c, 5 + 3.3 * s, 5 + 4.4 * c, 5 + 4.4 * s);
+        })
+        .join('');
+      const letra = p.letra || LETRA_COLOR[p.color ?? ''] || '';
+      return L(5, 0, 5, 2.4) + C(5, 5, 2.6) + L(5, 7.6, 5, 10) + rayos + T(5, 5, letra, letra.length > 1 ? 1.9 : 2.6, rot);
+    },
+    props: [
+      TAG,
+      { key: 'letra', label: 'Letra (vacío: la del color)', def: '', opciones: ['R', 'S', 'T', 'L1', 'L2', 'L3', 'N'], libre: true },
+      { key: 'color', label: 'Color', def: 'Rojo', opciones: Object.keys(LETRA_COLOR) },
+      { key: 'funcion', label: 'Función', def: '' },
+      { key: 'tension', label: 'Tensión', def: '220', unidad: 'V' },
+    ],
+    etiqueta: (p) => juntar(p.funcion, juntar(p.color, con(p.tension, 'V')).join(', ')),
+    prefijo: 'LP',
+  },
+
   // ===== Distribución =====
   {
     id: 'barra',
@@ -407,19 +593,23 @@ const LISTA: SymbolDef[] = [
       for (let x = 0; x <= largo; x += 5) out.push({ id: `p${x / 5}`, x, y: 0 });
       return out;
     },
-    draw: (p) => L(0, 0, largoBarra(p), 0, 'stroke-width="1.2" stroke-linecap="butt"'),
+    draw: (p) => L(0, 0, largoBarra(p), 0, `stroke-width="${p.grosor === 'Fina' ? 0.5 : 1.2}" stroke-linecap="butt"`),
     props: [
       { key: 'tag', label: 'Designación', def: '' },
       { key: 'largo', label: 'Largo en el plano', def: '60', unidad: 'mm' },
+      { key: 'grosor', label: 'Línea', def: 'Gruesa', opciones: ['Gruesa', 'Fina'] },
       { key: 'seccion', label: 'Sección de la barra', def: '' },
       { key: 'capacidad', label: 'Capacidad de transporte', def: '', unidad: 'A' },
+      { key: 'sistema', label: 'Sistema', def: '', opciones: ['3P+N+T', '3P+T', '1P+N+T', 'N', 'T.P.'], libre: true },
     ],
-    etiqueta: (p) => juntar(juntar(p.seccion, con(p.capacidad, 'A')).join(' - ')),
+    etiqueta: (p) => juntar(juntar(p.seccion, con(p.capacidad, 'A'), p.sistema).join(', ')),
     etiquetaPos: 'arriba',
     junctionOnConnect: true,
+    redim: { paso: 10, minimo: 10, soloAncho: true, aplicar: (w) => ({ largo: String(w) }) },
   },
   {
     id: 'tablero',
+    alias: ['caja', 'contorno', 'gabinete'],
     nombre: 'Contorno de tablero',
     categoria: 'Distribución',
     origen: 'RIC N°18, anexo 18.5',
@@ -432,7 +622,14 @@ const LISTA: SymbolDef[] = [
       const h = medida(p.alto, 60);
       const lineas = juntar(p.tag, p.descripcion, p.envolvente);
       return (
-        R(0, 0, w, h, 'stroke-dasharray="6 1.5 1 1.5" stroke-width="0.25"') +
+        R(
+          0,
+          0,
+          w,
+          h,
+          (p.linea === 'Continua' ? '' : p.linea === 'Segmentada' ? 'stroke-dasharray="3 1.5" ' : 'stroke-dasharray="6 1.5 1 1.5" ') +
+            'stroke-width="0.25"',
+        ) +
         lineas
           .map(
             (s, i) =>
@@ -445,12 +642,66 @@ const LISTA: SymbolDef[] = [
     props: [
       { key: 'tag', label: 'Designación', def: 'T.D.A.' },
       { key: 'descripcion', label: 'Descripción', def: 'Tablero de distribución de alumbrado' },
+      { key: 'linea', label: 'Línea', def: 'Trazo y punto', opciones: ['Trazo y punto', 'Segmentada', 'Continua'] },
       { key: 'envolvente', label: 'Material, IP y dimensiones', def: '' },
       { key: 'ancho', label: 'Ancho en el plano', def: '80', unidad: 'mm' },
       { key: 'alto', label: 'Alto en el plano', def: '60', unidad: 'mm' },
     ],
     etiquetaPos: 'ninguna',
     fondo: true,
+    redim: { paso: 5, minimo: 10, aplicar: (w, h) => ({ ancho: String(w), alto: String(h) }) },
+  },
+  {
+    id: 'caja',
+    alias: ['equipo', 'recuadro', 'bloque', 'no estandarizado'],
+    nombre: 'Caja de equipo',
+    categoria: 'Distribución',
+    origen: 'RIC N°18, anexo 18.5 (recuadro con texto)',
+    w: 40,
+    h: 20,
+    size: (p) => ({ w: medida(p.ancho, 40), h: medida(p.alto, 20) }),
+    // Bornes cada 5 mm en todo el borde, para unir conductores donde haga falta.
+    ports: (p) => {
+      const w = medida(p.ancho, 40);
+      const h = medida(p.alto, 20);
+      const out: PortDef[] = [];
+      for (let x = 5; x < w; x += 5) out.push({ id: `t${x}`, x, y: 0 }, { id: `b${x}`, x, y: h });
+      for (let y = 5; y < h; y += 5) out.push({ id: `l${y}`, x: 0, y }, { id: `r${y}`, x: w, y });
+      return out;
+    },
+    draw: (p, rot) => {
+      const w = medida(p.ancho, 40);
+      const h = medida(p.alto, 20);
+      const lineas = (p.texto || '').split('\n');
+      const alto = medida(p.letra, 2.6);
+      const y0 = h / 2 - ((lineas.length - 1) * alto * 1.25) / 2;
+      return (
+        R(0, 0, w, h, p.linea === 'Segmentada' ? 'stroke-dasharray="2.5 1.5"' : '') +
+        lineas.map((l, i) => T(w / 2, y0 + i * alto * 1.25, l, alto, rot)).join('')
+      );
+    },
+    props: [
+      { key: 'texto', label: 'Texto', def: 'EQUIPO', largo: true },
+      { key: 'linea', label: 'Línea', def: 'Continua', opciones: ['Continua', 'Segmentada'] },
+      { key: 'letra', label: 'Alto de letra', def: '2.6', unidad: 'mm' },
+      { key: 'ancho', label: 'Ancho en el plano', def: '40', unidad: 'mm' },
+      { key: 'alto', label: 'Alto en el plano', def: '20', unidad: 'mm' },
+    ],
+    etiquetaPos: 'ninguna',
+    redim: { paso: 10, minimo: 10, aplicar: (w, h) => ({ ancho: String(w), alto: String(h) }) },
+  },
+  {
+    id: 'borne',
+    alias: ['regleta', 'bornera', 'terminal'],
+    nombre: 'Borne o regleta',
+    categoria: 'Distribución',
+    origen: 'RIC N°18, anexo 18.5',
+    w: 10,
+    h: 10,
+    ports: () => tb(10, 10),
+    draw: () => L(5, 0, 5, 3.8) + C(5, 5, 1.2) + L(3.2, 6.8, 6.8, 3.2) + L(5, 6.2, 5, 10),
+    props: [TAG, { key: 'regleta', label: 'Regleta y número', def: '' }],
+    etiqueta: (p) => juntar(p.regleta),
   },
   {
     id: 'circuito',
@@ -483,6 +734,34 @@ const LISTA: SymbolDef[] = [
     etiquetaPos: 'abajo',
   },
   {
+    id: 'enchufe',
+    alias: ['toma', 'tomacorriente', 'industrial', 'socket', 'cetac'],
+    nombre: 'Enchufe',
+    categoria: 'Distribución',
+    origen: 'IEC 60617 (toma de corriente)',
+    w: 10,
+    h: 10,
+    ports: () => top(10),
+    draw: (p) => {
+      const tres = (p.polos || '').startsWith('3P');
+      const patas = tres ? [3.8, 5, 6.2] : [5];
+      return (
+        L(5, 0, 5, 3) +
+        P('M1.5 3 L8.5 3 A3.5 3.5 0 0 1 1.5 3 Z') +
+        patas.map((x) => L(x, x === 5 ? 6.5 : 6.3, x, 9.6)).join('')
+      );
+    },
+    props: [
+      TAG,
+      { key: 'in', label: 'Corriente', def: '16', unidad: 'A', opciones: ['10', '16', '32', '63', '125'], libre: true },
+      { key: 'polos', label: 'Polos', def: '2P+T', opciones: ['2P+T', '3P+T', '3P+N+T'] },
+      { key: 'tension', label: 'Tensión', def: '', unidad: 'V' },
+      { key: 'ip', label: 'Grado IP', def: '', opciones: ['IP44', 'IP67'], libre: true },
+    ],
+    etiqueta: (p) => juntar(p.in && `ENCHUFE ${p.in} A`, juntar(p.polos, con(p.tension, 'V'), p.ip).join(', ')),
+    etiquetaPos: 'abajo',
+  },
+  {
     id: 'tierra_proteccion',
     nombre: 'Tierra de protección',
     categoria: 'Distribución',
@@ -490,9 +769,13 @@ const LISTA: SymbolDef[] = [
     w: 10,
     h: 10,
     ports: () => top(10),
-    draw: () => L(5, 0, 5, 4.4) + tierra(5, 4.4) + C(5, 5.6, 3.9),
+    draw: (p) =>
+      p.dibujo === ACHURADA
+        ? L(5, 0, 5, 5) + L(1.5, 5, 8.5, 5) + [0, 1, 2, 3, 4].map((i) => L(2.6 + i * 1.5, 5, 1.4 + i * 1.5, 7.6)).join('')
+        : L(5, 0, 5, 4.4) + tierra(5, 4.4) + C(5, 5.6, 3.9),
     props: [
       { key: 'tag', label: 'Designación', def: 'T.P.' },
+      { key: 'dibujo', label: 'Dibujo', def: 'Anexo 18.3', opciones: ['Anexo 18.3', ACHURADA] },
       { key: 'resistencia', label: 'Resistencia medida', def: '', unidad: 'Ω' },
       { key: 'conductor', label: 'Conductor', def: '' },
       { key: 'metodo', label: 'Método e instrumento de medición', def: '' },
@@ -522,6 +805,7 @@ const LISTA: SymbolDef[] = [
   // ===== Máquinas y equipos =====
   {
     id: 'transformador',
+    alias: ['trafo'],
     nombre: 'Transformador',
     categoria: 'Máquinas y equipos',
     origen: 'ANSI/IEEE 315',
@@ -595,14 +879,21 @@ const LISTA: SymbolDef[] = [
   },
   {
     id: 'variador',
-    nombre: 'Variador de frecuencia',
+    alias: ['vdf', 'vfd', 'drive', 'convertidor'],
+    nombre: 'Variador de frecuencia (VDF)',
     categoria: 'Máquinas y equipos',
     origen: 'ANSI/IEEE 315',
     w: 20,
     h: 20,
     ports: () => tb(20, 20),
     draw: (_p, rot) =>
-      L(10, 0, 10, 4) + R(3, 4, 14, 12) + L(3, 16, 17, 4) + T(6.2, 7.2, '~', 3, rot) + T(13.6, 13, 'f', 3, rot) + L(10, 16, 10, 20),
+      L(10, 0, 10, 4) +
+      R(3, 4, 14, 12) +
+      L(3, 16, 17, 4) +
+      T(6.4, 7.4, '~', 3.4, rot) +
+      T(13.6, 12.8, '~', 3.4, rot) +
+      T(13.6, 14.6, '~', 3.4, rot) +
+      L(10, 16, 10, 20),
     props: [
       TAG,
       { key: 'potencia', label: 'Potencia', def: '7,5', unidad: 'kW' },
@@ -614,6 +905,7 @@ const LISTA: SymbolDef[] = [
   },
   {
     id: 'condensador',
+    alias: ['capacitor'],
     nombre: 'Banco de condensadores',
     categoria: 'Máquinas y equipos',
     origen: 'ANSI/IEEE 315',
@@ -635,13 +927,14 @@ const LISTA: SymbolDef[] = [
   // ===== Fotovoltaica y respaldo =====
   {
     id: 'modulo_fv',
+    alias: ['panel', 'string', 'solar', 'modulo'],
     nombre: 'Generador fotovoltaico',
     categoria: 'Fotovoltaica y respaldo',
-    origen: 'IEC 60617 (el RIC no lo define)',
+    origen: 'diagrama unilineal tipo fotovoltaico de la SEC',
     w: 20,
     h: 10,
-    ports: () => bottom(20, 10),
-    draw: () => R(3, 0.5, 14, 8) + L(3, 0.5, 7.5, 4.5) + L(3, 8.5, 7.5, 4.5) + L(10, 8.5, 10, 10),
+    ports: () => tb(20, 10),
+    draw: () => L(10, 0, 10, 1.5) + R(3, 1.5, 14, 7) + L(3, 1.5, 7, 5) + L(3, 8.5, 7, 5) + L(10, 8.5, 10, 10),
     props: [
       TAG,
       { key: 'modulos', label: 'Módulos por string', def: '10' },
@@ -661,9 +954,10 @@ const LISTA: SymbolDef[] = [
   },
   {
     id: 'inversor',
-    nombre: 'Inversor',
+    alias: ['inverter', 'solar', 'fotovoltaico'],
+    nombre: 'Inversor (inverter)',
     categoria: 'Fotovoltaica y respaldo',
-    origen: 'IEC 60617 (el RIC no lo define)',
+    origen: 'diagrama unilineal tipo fotovoltaico de la SEC (lado de alterna arriba)',
     w: 20,
     h: 20,
     ports: () => tb(20, 20),
@@ -671,15 +965,16 @@ const LISTA: SymbolDef[] = [
       L(10, 0, 10, 4) +
       R(3, 4, 14, 12) +
       L(3, 16, 17, 4) +
-      L(4.6, 6.6, 8, 6.6) +
-      L(4.6, 7.8, 8, 7.8, 'stroke-dasharray="0.8 0.5"') +
-      T(13.6, 12.8, '~', 3.4, rot) +
+      T(6.4, 7.4, '~', 3.4, rot) +
+      L(11.8, 12.3, 15.4, 12.3) +
+      L(11.8, 13.7, 15.4, 13.7) +
       L(10, 16, 10, 20),
     props: [
       TAG,
       { key: 'potencia', label: 'Potencia nominal', def: '5', unidad: 'kW' },
       { key: 'tipo', label: 'Tipo', def: 'Conectado a red', opciones: ['Conectado a red', 'Híbrido', 'Aislado'] },
       { key: 'vdc', label: 'Tensión máxima CC', def: '', unidad: 'V' },
+      { key: 'mppt', label: 'Entradas MPPT', def: '' },
       { key: 'vac', label: 'Tensión de salida', def: '220', unidad: 'V' },
       MARCA,
     ],
@@ -688,6 +983,7 @@ const LISTA: SymbolDef[] = [
   },
   {
     id: 'bateria',
+    alias: ['acumulador'],
     nombre: 'Batería',
     categoria: 'Fotovoltaica y respaldo',
     origen: 'RIC N°18, anexo 18.3 (3.4)',
@@ -713,6 +1009,7 @@ const LISTA: SymbolDef[] = [
   },
   {
     id: 'ups',
+    alias: ['sai'],
     nombre: 'UPS',
     categoria: 'Fotovoltaica y respaldo',
     origen: 'ANSI/IEEE 315',

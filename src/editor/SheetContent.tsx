@@ -7,6 +7,7 @@ import type { Instance, Project, ProjectInfo, Sheet } from '../model/types';
 import { sheetGeom } from '../model/formats';
 import { instBox, instSize, junctions, routeWire } from '../model/geometry';
 import { FONT, getSymbol } from '../symbols';
+import { tipoConductor } from '../model/conductores';
 
 const TRAZO = 0.35;
 
@@ -40,8 +41,15 @@ export function SheetContent({ project, sheet, grid }: Props) {
         return (
           <g key={w.id} data-id={w.id}>
             <path data-ui="1" d={d} fill="none" stroke="transparent" strokeWidth={3} />
-            <path d={d} fill="none" stroke="#000" strokeWidth={TRAZO} strokeLinejoin="round" />
-            {w.label && <WireLabel pts={pts} label={w.label} />}
+            <path
+              d={d}
+              fill="none"
+              stroke={tipoConductor(w.tipo).color}
+              strokeWidth={TRAZO}
+              strokeLinejoin="round"
+              strokeDasharray={tipoConductor(w.tipo).trazos || undefined}
+            />
+            {w.label && <WireLabel pts={pts} label={w.label} color={tipoConductor(w.tipo).color} />}
           </g>
         );
       })}
@@ -100,6 +108,11 @@ function Etiqueta({ inst }: { inst: Instance }) {
   } else if (pos === 'arriba') {
     x = b.x;
     y = b.y - 1.6 - (lineas.length - 1) * paso;
+  } else if (inst.rot === 90 || inst.rot === 270) {
+    // Símbolo acostado sobre un conductor horizontal: el texto va encima, centrado.
+    x = b.x + b.w / 2;
+    y = b.y + 0.4 - (lineas.length - 1) * paso;
+    anchor = 'middle';
   }
   return (
     <text fontFamily={FONT} fontSize={alto} fill="#000" stroke="none" textAnchor={anchor}>
@@ -112,7 +125,7 @@ function Etiqueta({ inst }: { inst: Instance }) {
   );
 }
 
-function WireLabel({ pts, label }: { pts: { x: number; y: number }[]; label: string }) {
+function WireLabel({ pts, label, color }: { pts: { x: number; y: number }[]; label: string; color: string }) {
   // El texto va junto al tramo más largo del conductor.
   let mejor = 0;
   let largo = -1;
@@ -129,7 +142,7 @@ function WireLabel({ pts, label }: { pts: { x: number; y: number }[]; label: str
   const x = vertical ? a.x + 1.5 : (a.x + b.x) / 2;
   const y = vertical ? (a.y + b.y) / 2 + 0.8 : a.y - 1.2;
   return (
-    <text x={x} y={y} fontFamily={FONT} fontSize={2.2} fill="#000" stroke="none" textAnchor={vertical ? 'start' : 'middle'}>
+    <text x={x} y={y} fontFamily={FONT} fontSize={2.2} fill={color} stroke="none" textAnchor={vertical ? 'start' : 'middle'}>
       {label}
     </text>
   );
